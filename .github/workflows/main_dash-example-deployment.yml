@@ -60,4 +60,4 @@ jobs:
         with:
           app-name: 'dash-example-deployment'
           slot-name: 'Production'
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_9B0ED4A9649640E78D63BB2569A4ACB0 }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_AEE3AFEBE74844669092674DA3F55631 }}
