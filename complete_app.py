@@ -1,4 +1,4 @@
-from dash import Dash, html, dcc, Input, Output
+from dash import Dash, html, dcc, Input, Output, dash_table
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import pandas as pd
@@ -90,6 +90,7 @@ sidebar = html.Div(
             vertical=True,
             pills=True,
         ),
+        html.Footer("Copyright © Hayat Lab 2022")
     ],
     style=SIDEBAR_STYLE,
 )
@@ -185,6 +186,61 @@ page1 = dbc.Container(
 )
 ## End of Page 1 ##
 
+## Page 2 ##
+# UMAP
+page2umap_figure = px.scatter(final_data[["UMAP_1", "UMAP_2", "cell_type"]], x="UMAP_1", y="UMAP_2", color="cell_type")
+page2umap_component = dcc.Graph(figure=page2umap_figure, id="page2-umap")
+
+# Violin Plot
+page2_violin = px.violin(violin_df, y="SNRPG")
+page2_violin_component = dcc.Graph(figure=page2_violin, id="page2-violin")
+
+# Data Table
+csv_table = pd.read_excel('aggregated_select_DE_genes.xlsx')
+data_table = dash_table.DataTable(
+    csv_table.to_dict('records'),
+    [{"name": i.capitalize(), "id": i} for i in csv_table.columns],
+    row_selectable="multi",
+    fixed_columns={"headers": True},
+    style_data={
+        'whiteSpace': 'normal',
+        'height': 'auto',
+    },
+    style_header={
+        'backgroundColor': 'rgb(30, 30, 30)',
+        'color': 'white'
+    },
+    style_table={'minWidth': '100%', 'overflowX': 'auto'},
+    filter_action="native",
+    sort_action="native",
+    sort_mode="multi",
+    cell_selectable=False,
+    page_size=10,
+    id="page2-datatable",
+    #style_table={'overflowX': 'auto'}
+)
+
+# Final Page2 Layout
+page2 = dbc.Container(
+    [
+        dbc.Row(
+            [
+                dbc.Col([
+                    dcc.Loading(page2umap_component)
+                ], width=6),
+                dbc.Col([
+                    dcc.Loading(page2_violin_component)
+                ], width=6)
+            ]
+        ),
+        dbc.Row(
+            dbc.Col(data_table, width=12, style={"border-style": "solid"}),
+        ),
+        dbc.Alert(id='absent-genes')
+    ],
+    fluid=True
+)
+## End of Page 2 ##
 ### Layout for the app ###
 app.layout = html.Div(
     [
@@ -215,7 +271,7 @@ def render_page_content(pathname):
     if pathname == "/":
         return page1
     elif pathname == "/tableselect":
-        return html.P("This is the content of page 2. Yay!")
+        return page2
     # If the user tries to reach a different page, return a 404 message
     return html.Div(
         [
@@ -230,25 +286,20 @@ def render_page_content(pathname):
 @app.callback(
     Output('filter-dropdown-page1', 'options'),
     Output('filter-dropdown-page1', 'value'),
-    #Output('filter-dropdown-page1', 'value'),
     Input('filter-radio-page1', 'value')
 )
 def populate_dropdown_page1(radiovalue):
     dropdown_list = [{'label': value, 'value': value} for value in umap_df[radiovalue].values.unique()]
-    #dropdown_list.insert(0, {'label': 'Please select a value', 'value': 'Nothing'})
     return dropdown_list, None # Setting the dropdown's value to 'None' fixes a KeyError Bug
 
 # Callback for filtering the graph based on (cell-type/disease/final cluster) filter
 @app.callback(
     Output('main-graph', 'figure'),
-    #Output('sample-div', 'children'),
-    #Output('sample-div2', 'children'),
     Input('filter-radio-page1', 'value'),
     Input('filter-dropdown-page1', 'value'),
     Input('gene-dropdown-page1', 'value'),
 )
 def update_page1_main_graph_from_controls(radiovalue, filtervalue, genevalues):
-    reference_graph_updated = px.scatter(data_frame=final_data[["UMAP_1", "UMAP_2", radiovalue]], x="UMAP_1", y="UMAP_2", color=radiovalue)
     if not filtervalue:
         if not genevalues:
             filtered_data1 = final_data[["UMAP_1", "UMAP_2", radiovalue]]
@@ -273,7 +324,6 @@ def update_page1_main_graph_from_controls(radiovalue, filtervalue, genevalues):
             mask = filtered_data4[gene]==1
             filtered_data4 = filtered_data4[mask]
         figure4 = px.scatter(data_frame=filtered_data4, x="UMAP_1", y="UMAP_2", color=filtered_data4[radiovalue].values.astype(str))
-        # Remove these maybe?
         return figure4
 
 # Update Violin Plot
@@ -286,6 +336,32 @@ def update_violin_plot(genevalues):
         return px.violin(violin_df[["CSTF2T", "ALDH1A2", "SNRPG"]], y=["CSTF2T", "ALDH1A2", "SNRPG"])
     else:
         return px.violin(violin_df[genevalues], y=genevalues)
+
+# Page 2 Callback - Update both plots when a row is selected
+@app.callback(
+    Output("page2-umap", "figure"),
+    Output("page2-violin", "figure"),
+    Output("absent-genes", "children"),
+    Input("page2-datatable", "selected_rows")
+)
+def update_page2_plots(selected_rows):
+    if selected_rows:
+        selected_genes = csv_table.iloc[selected_rows]["gene"]
+        valid_genes = [gene for gene in selected_genes if gene in feature_names]
+        valid_genes = set(valid_genes)
+        absent_genes = list(set(selected_genes) - valid_genes)
+        valid_genes = list(valid_genes)
+        filtered_data = final_data[valid_genes + ["UMAP_1", "UMAP_2", "cell_type"]]
+        for gene in valid_genes:
+            mask = filtered_data[gene] == 1
+            filtered_data = filtered_data[mask]
+        umap_updated = px.scatter(data_frame=filtered_data, x="UMAP_1", y="UMAP_2", color=filtered_data.values.astype(str))
+        violin_updated = px.violin(violin_df[valid_genes], y=valid_genes)
+        return umap_updated, violin_updated, "Following genes missing: " + ','.join(absent_genes)
+    else:
+        umap_original = px.scatter(final_data[["UMAP_1", "UMAP_2", "cell_type"]], x="UMAP_1", y="UMAP_2", color="cell_type")
+        violin_original = px.violin(violin_df, y="SNRPG")
+        return umap_original, violin_original, "No genes selected"
 
 ### Callbacks end here ###
 
